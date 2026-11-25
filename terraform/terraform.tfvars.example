@@ -1,0 +1,5 @@
+region             = "eu-west-2"
+single_nat_gateway = true
+db_multi_az        = false
+# certificate_arn  = "arn:aws:acm:eu-west-2:111122223333:certificate/..."
+github_repository  = "humzamalak/three-tier-web-app-aws"

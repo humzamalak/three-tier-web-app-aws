@@ -1,0 +1,39 @@
+# Local copy of the three tiers. Open http://localhost:8080
+services:
+  web:
+    build: ./app/web
+    ports: ["8080:8080"]
+    environment:
+      API_UPSTREAM: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build: ./app/api
+    environment:
+      DB_HOST: db
+      DB_NAME: app
+      DB_USER: app
+      DB_PASSWORD: local-only-password
+      DB_SSLMODE: disable
+      APP_VERSION: local
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: local-only-password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  db-data:

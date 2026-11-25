@@ -1,0 +1,82 @@
+name: Deploy
+
+# Runs after CI passes on main. Does nothing until the repository variable
+# AWS_DEPLOY_ROLE_ARN is set (Terraform output github_deploy_role_arn).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-2' }}
+  NAME: ${{ vars.APP_NAME || 'three-tier' }}
+
+jobs:
+  deploy:
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        # The API goes first, so the web tier never calls an older API.
+        service: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        id: image
+        env:
+          TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/${NAME}/${{ matrix.service }}:${TAG}"
+          if aws ecr describe-images --repository-name "${NAME}/${{ matrix.service }}" --image-ids imageTag="${TAG}" >/dev/null 2>&1; then
+            echo "Image ${TAG} already exists (tags are immutable)."
+          else
+            docker build -t "$IMAGE" "app/${{ matrix.service }}"
+            docker push "$IMAGE"
+          fi
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Get current task definition
+        run: |
+          aws ecs describe-task-definition --task-definition "${NAME}-${{ matrix.service }}" \
+            --query taskDefinition > task-definition.json
+
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ matrix.service }}
+          image: ${{ steps.image.outputs.uri }}
+          environment-variables: |
+            APP_VERSION=${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Deploy and wait for a healthy rollout
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ matrix.service }}
+          cluster: ${{ env.NAME }}
+          wait-for-service-stability: true
