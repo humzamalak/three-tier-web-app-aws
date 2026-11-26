@@ -44,14 +44,23 @@ jobs:
     name: Build and scan images
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service: [web, api]
     steps:
       - uses: actions/checkout@v4
       - name: Lint Dockerfile (hadolint)
         run: docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold error - < app/${{ matrix.service }}/Dockerfile
+      # Amazon ECR Public limits anonymous pulls per IP and can return HTTP 429
+      # when several jobs pull at the same time. Retry with a back-off.
       - name: Build
-        run: docker build -t ${{ matrix.service }}:ci app/${{ matrix.service }}
+        run: |
+          for attempt in 1 2 3; do
+            docker build -t ${{ matrix.service }}:ci app/${{ matrix.service }} && exit 0
+            echo "Build failed (attempt $attempt). Retrying in $((attempt * 20)) s."
+            sleep $((attempt * 20))
+          done
+          exit 1
       # Trivy runs from its pinned container image, not from a third-party action.
       - name: Scan with Trivy (fail on fixable critical and high)
         run: |
