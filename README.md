@@ -105,10 +105,12 @@ Requirements: Terraform 1.6 or later, AWS CLI, Docker, and credentials for a tes
 2. Push a first image for each tier:
 
    ```bash
-   REGISTRY=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-2.amazonaws.com
-   aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+   REGION=eu-west-2   # the same region as in terraform.tfvars
+   REGISTRY=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$REGION.amazonaws.com
+   aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
    for s in web api; do
-     docker build -t "$REGISTRY/three-tier/$s:bootstrap" "../app/$s"
+     # Fargate tasks run on x86_64. --platform is needed on Apple silicon.
+     docker build --platform linux/amd64 -t "$REGISTRY/three-tier/$s:bootstrap" "../app/$s"
      docker push "$REGISTRY/three-tier/$s:bootstrap"
    done
    ```
@@ -135,7 +137,7 @@ For HTTPS, create an ACM certificate for your domain and set `certificate_arn`. 
 
 - **No secrets in code or images.** RDS creates the database password and stores it in Secrets Manager (`manage_master_user_password`). ECS injects it into the API container at start-up. GitHub Actions uses OIDC, limited to the `main` branch of this repository, so there are no AWS keys in GitHub.
 - **Network isolation.** Tasks have no public IP. The database subnets have no route to the internet. Security groups reference each other, not CIDR ranges.
-- **Hardened containers.** Both images run as non-root users. The API container has a read-only root file system. Base images come from Amazon ECR Public (no Docker Hub pull limits) and get OS security updates at build time. CI fails on fixable critical or high CVEs.
+- **Hardened containers.** Both images run as non-root users. The API container has a read-only root file system. Base images are official Docker Hub images and get OS security updates at build time. CI fails on fixable critical or high CVEs.
 - **Immutable releases.** ECR tags are immutable and each image is tagged with the Git commit SHA, so a running task always maps to one commit.
 - **Terraform and CI/CD do not fight.** Terraform creates the first task definition. After that, GitHub Actions owns new revisions, and the ECS services ignore `task_definition` changes in Terraform.
 - **Observability.** Container logs go to CloudWatch Logs. Container Insights is on. VPC flow logs record rejected traffic. ALB access logs go to S3. RDS exports PostgreSQL logs and logs queries slower than 500 ms.
