@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-# Official Docker Hub images.
+# Images come from Amazon ECR Public to avoid Docker Hub pull limits.
 # nginx-unprivileged runs as a non-root user and listens on 8080.
-FROM nginxinc/nginx-unprivileged:1.30-alpine
+FROM public.ecr.aws/nginx/nginx-unprivileged:1.30-alpine
 # Pick up Alpine security fixes released after the base image was built.
 USER root
 RUN apk upgrade --no-cache
