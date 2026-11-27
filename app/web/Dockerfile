@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Images come from Amazon ECR Public to avoid Docker Hub pull limits.
+# The Amazon ECR Public copy of nginx-unprivileged has newer builds than the Docker Hub copy.
 # nginx-unprivileged runs as a non-root user and listens on 8080.
 FROM public.ecr.aws/nginx/nginx-unprivileged:1.30-alpine
 # Pick up Alpine security fixes released after the base image was built.
